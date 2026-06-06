@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useChannels, useMessages, useUsers } from '../hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import {
-  MessageSquare, Hash, Users, Search, Bell, HelpCircle,
-  FileText, Paperclip, Smile, Send, MoreVertical, BookOpen,
-  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, Edit3, MessageCircle, Mail
+  MessageSquare, Hash, Users, FileText, Paperclip, Smile, Send, BookOpen,
+  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail
 } from 'lucide-react';
 
 const MOCK_EMOJIS = ['😀', '😂', '😍', '👍', '🎉', '🚀', '👀', '🔥', '💡', '✅', '👏', '🤔', '💪', '🌟', '❤️', '😎'];
@@ -28,13 +27,8 @@ export const ChatApp: React.FC = () => {
   }, [channels, activeChannelId, overviewChannel]);
 
   const [messageText, setMessageText] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
-  const [peerSearchQuery, setPeerSearchQuery] = useState('');
-  
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [showPeersModal, setShowPeersModal] = useState(false);
-  const [showOptions, setShowOptions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
@@ -248,7 +242,6 @@ export const ChatApp: React.FC = () => {
     }
 
     setShowPeersModal(false);
-    setPeerSearchQuery('');
   };
 
   const formatTime = (isoString: string) => {

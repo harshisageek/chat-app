@@ -35,7 +35,7 @@ export const useChannels = (userId: string | undefined) => {
     // Subscribe to channel changes
     const subscription = supabase
       .channel('channels_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' }, payload => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'channels' }, () => {
         fetchChannels(); // refetch to handle joins properly
       })
       .subscribe();

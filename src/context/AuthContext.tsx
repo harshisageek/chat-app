@@ -6,7 +6,7 @@ type UserProfile = {
   id: string;
   email: string;
   full_name: string;
-  avatar_url: string;
+  avatar_url?: string | null;
   color: string;
   role: 'Student' | 'Mentor' | 'Alumni';
 };
@@ -125,16 +125,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const newProfile = {
       id: user.id,
-      email: user.email,
+      email: user.email || '',
       full_name: defaultName,
+      avatar_url: null,
       color: randomColor,
-      role: 'Student',
+      role: 'Student' as const,
       is_online: true,
       last_seen: new Date().toISOString()
     };
 
     console.log('[AuthContext] Inserting new profile in database:', newProfile);
-    const { data, error } = await supabase.from('profiles').insert([newProfile]).select();
+    const { error } = await supabase.from('profiles').insert([newProfile]);
     if (!error) {
       console.log('[AuthContext] Profile created successfully in database!');
       setProfile(newProfile as UserProfile);
