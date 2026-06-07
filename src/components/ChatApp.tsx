@@ -197,25 +197,14 @@ export const ChatApp: React.FC = () => {
           if (bot) {
             const responseDelay = Math.random() * 2000 + 1500; // 1.5 to 3.5 seconds
             
-            // Set bot to typing
-            const typingChannel = supabase.channel(`typing:${activeChannelId}`);
-            typingChannel.subscribe(async (status) => {
-              if (status === 'SUBSCRIBED') {
-                await typingChannel.track({ user: bot.name, is_typing: true });
-                
-                setTimeout(async () => {
-                  await typingChannel.track({ user: bot.name, is_typing: false });
-                  typingChannel.unsubscribe();
-                  
-                  const botResponse = bot.responses[Math.floor(Math.random() * bot.responses.length)];
-                  await supabase.from('messages').insert([{
-                    channel_id: activeChannelId,
-                    author_id: bot.id,
-                    text: botResponse
-                  }]);
-                }, responseDelay);
-              }
-            });
+            setTimeout(async () => {
+              const botResponse = bot.responses[Math.floor(Math.random() * bot.responses.length)];
+              await supabase.rpc('insert_bot_message', {
+                p_channel_id: activeChannelId,
+                p_author_id: bot.id,
+                p_text: botResponse
+              });
+            }, responseDelay);
           }
         }
       }
