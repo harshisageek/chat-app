@@ -16,6 +16,8 @@ const pickProfileColor = (seed: string) => {
   return COLORS[hash % COLORS.length];
 };
 
+let isEnsuringBots = false;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -23,6 +25,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const ensureBotDms = useCallback(async (userId: string) => {
+    if (isEnsuringBots) return;
+    isEnsuringBots = true;
     try {
       for (const bot of BOTS) {
         const botId = bot.id;
@@ -75,6 +79,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error('[AuthContext] Exception in ensureBotDms:', err);
+    } finally {
+      isEnsuringBots = false;
     }
   }, []);
 
