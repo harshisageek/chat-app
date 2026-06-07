@@ -151,10 +151,13 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
   const channelRef = useRef<RealtimeChannel | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+  const lastTrackTimeRef = useRef(0);
+  const isConnectedRef = useRef(false);
 
   useEffect(() => {
     if (!channelId || !userId) return;
 
+    isConnectedRef.current = false;
     const presenceChannel = supabase.channel(`typing:${channelId}`, {
       config: { presence: { key: userId } }
     });
@@ -177,6 +180,7 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
+          isConnectedRef.current = true;
           await presenceChannel.track({ is_typing: false, name: userName || 'User' });
         }
       });
@@ -191,10 +195,13 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
   }, [channelId, userId, userName]);
 
   const startTyping = useCallback(() => {
-    if (!channelRef.current) return;
+    if (!channelRef.current || !isConnectedRef.current) return;
     
-    if (!isTypingRef.current) {
+    const now = Date.now();
+    // Track if we just started typing, OR every 2 seconds to ensure delivery and recover from drops
+    if (!isTypingRef.current || now - lastTrackTimeRef.current > 2000) {
       isTypingRef.current = true;
+      lastTrackTimeRef.current = now;
       channelRef.current.track({ is_typing: true, name: userName || 'User' });
     }
     
