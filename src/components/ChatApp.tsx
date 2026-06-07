@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import {
   MessageSquare, Hash, Users, FileText, Paperclip, Smile, Send, BookOpen,
   X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail,
-  Volume2, VolumeX, CheckCheck, Moon, Sun, Search, Reply, Edit2
+  Volume2, VolumeX, CheckCheck, Search, Reply, Edit2
 } from 'lucide-react';
 import type { AttachedFile, Channel, ChannelMember, Message, UserProfile, UserRole } from '../types/chat';
 
@@ -42,18 +42,6 @@ export const ChatApp: React.FC = () => {
       return newVal;
     });
   }, []);
-
-  // ─── TIER 2: Dark Mode ───
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('chat_theme') as 'light' | 'dark') || 'light';
-  });
-  
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('chat_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
 
   // ─── TIER 2: Search ───
   const [searchQuery, setSearchQuery] = useState('');
@@ -530,13 +518,6 @@ export const ChatApp: React.FC = () => {
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-            <button 
-              aria-label="Toggle dark mode" 
-              onClick={toggleTheme}
-              title="Toggle theme"
-            >
-              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-            </button>
             <button 
               aria-label={isMuted ? 'Unmute notifications' : 'Mute notifications'} 
               onClick={toggleMute}
