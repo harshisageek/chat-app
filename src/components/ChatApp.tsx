@@ -279,28 +279,12 @@ export const ChatApp: React.FC = () => {
 
   const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
 
-  const handleInviteUser = async () => {
-    if (!inviteEmail.trim() || !user) return;
-    
-    const { data, error } = await supabase
-      .from('invitations')
-      .insert([{
-        email: inviteEmail.trim().toLowerCase(),
-        invited_by: user.id
-      }])
-      .select()
-      .single();
-      
-    if (error) {
-      showToast("Error creating invitation: " + error.message);
-      return;
-    }
-
-    if (data) {
-      const link = `${window.location.origin}/?invite=${data.id}`;
-      setGeneratedInviteLink(link);
-      showToast("Invitation link generated!");
-    }
+  const handleGenerateUniversalLink = () => {
+    if (!user) return;
+    const link = `${window.location.origin}/?inviter=${user.id}`;
+    setGeneratedInviteLink(link);
+    navigator.clipboard.writeText(link);
+    showToast("Universal invite link copied to clipboard!");
   };
 
   const handleCreateChannel = async () => {
@@ -884,29 +868,18 @@ export const ChatApp: React.FC = () => {
             </div>
             <div className="modal-body">
               {!generatedInviteLink ? (
-                <>
-                  <div className="form-group">
-                    <label style={{ color: '#475569', fontSize: '0.78rem', fontWeight: 600 }}>Email Address</label>
-                    <input
-                      className="form-input"
-                      type="email"
-                      placeholder="abc@gmail.com"
-                      value={inviteEmail}
-                      onChange={e => setInviteEmail(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleInviteUser(); }}
-                      autoFocus
-                      style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', backgroundColor: '#f8fafc', color: '#0f172a', marginTop: 4 }}
-                    />
-                  </div>
-                  <button className="form-submit-btn" disabled={!inviteEmail.trim()} onClick={handleInviteUser} style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}>
-                    <Mail size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
-                    Generate Invite Link
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+                    Generate a universal link that anyone can click to instantly start a direct message with you!
+                  </p>
+                  <button className="form-submit-btn" onClick={handleGenerateUniversalLink} style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'linear-gradient(135deg, var(--primary-500), var(--primary-600))', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer' }}>
+                    Generate & Copy Link
                   </button>
-                </>
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
-                    Share this unique link with them. Once they open it, they can register and chat with you in real-time!
+                    Share this unique link with anyone. Once they open it, they can register and chat with you in real-time!
                   </p>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input

@@ -12,7 +12,19 @@ export const LoginPage: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const inviteId = params.get('invite');
-    if (inviteId) {
+    const inviterId = params.get('inviter');
+    
+    if (inviterId) {
+      localStorage.setItem('pending_inviter', inviterId);
+      supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', inviterId)
+        .single()
+        .then(({ data: profile }) => {
+          if (profile) setInviterName(profile.full_name);
+        });
+    } else if (inviteId) {
       console.log('[LoginPage] Found invite token:', inviteId);
       supabase
         .from('invitations')

@@ -146,6 +146,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const processUniversalInvite = useCallback(async (currentUserId: string) => {
+    const inviterId = localStorage.getItem('pending_inviter');
+    if (!inviterId || inviterId === currentUserId) {
+       localStorage.removeItem('pending_inviter');
+       return;
+    }
+    
+    // Check if DM exists
+    const { data: myChannels } = await supabase.from('channel_members').select('channel_id').eq('user_id', currentUserId);
+    const myChannelIds = myChannels?.map(m => m.channel_id) || [];
+    
+    if (myChannelIds.length > 0) {
+      const { data: commonMembers } = await supabase.from('channel_members').select('channel_id').eq('user_id', inviterId).in('channel_id', myChannelIds);
+      if (commonMembers && commonMembers.length > 0) {
+         // They already have a channel together (we assume DM)
+         localStorage.removeItem('pending_inviter');
+         return;
+      }
+    }
+    
+    // Create new DM
+    const { data: newDm } = await supabase.from('channels').insert([{
+      name: 'Direct Message',
+      type: 'dm',
+      icon_type: 'user',
+      created_by: inviterId
+    }]).select().single();
+    
+    if (newDm) {
+      await supabase.from('channel_members').insert([
+        { channel_id: newDm.id, user_id: currentUserId },
+        { channel_id: newDm.id, user_id: inviterId }
+      ]);
+    }
+    
+    localStorage.removeItem('pending_inviter');
+  }, []);
+
   const createProfile = useCallback(async (authUser: User) => {
     const defaultName = authUser.email ? authUser.email.split('@')[0] : 'New User';
     const newProfile: UserProfile = {
@@ -168,11 +206,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log('[AuthContext] Processing channel invitations for new user...');
         await processInvitations(authUser.email, authUser.id);
       }
+      await processUniversalInvite(authUser.id);
       await ensureBotDm(authUser.id);
     } else {
       console.error('[AuthContext] Error inserting profile in database:', error.message, error);
     }
-  }, [ensureBotDm, processInvitations]);
+  }, [ensureBotDm, processInvitations, processUniversalInvite]);
 
   const fetchProfile = useCallback(async (authUser: User) => {
     console.log(`[AuthContext] fetchProfile starting for user ID: ${authUser.id}, Email: ${authUser.email}`);
@@ -199,17 +238,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.log('[AuthContext] Updating profile online status...');
         const { error: updateError } = await supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', authUser.id);
         if (updateError) {
-          console.error('[AuthContext] Error updating profile online status:', updateError);
+          console.warn('[AuthContext] Failed to update online status:', updateError.message);
         }
-        
-        console.log('[AuthContext] Processing channel invitations...');
-        await processInvitations(authUser.email, loadedProfile.id);
-        await ensureBotDm(loadedProfile.id);
-      } else {
-        console.warn('[AuthContext] fetchProfile returned no data and no error.');
+
+        if (authUser.email) {
+          await processInvitations(authUser.email, authUser.id);
+        }
+        await processUniversalInvite(authUser.id);
+        await ensureBotDm(authUser.id);
       }
     } catch (err) {
-      console.error('[AuthContext] Caught exception in fetchProfile:', err);
+      console.error('[AuthContext] Unexpected error in fetchProfile:', err);
     } finally {
       console.log('[AuthContext] fetchProfile finished. Setting loading to false.');
       setLoading(false);
