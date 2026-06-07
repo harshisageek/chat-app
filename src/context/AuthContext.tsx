@@ -167,16 +167,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Find if the bot is in any of these same channels, and confirm it's a DM
         const { data: commonMembers, error: err2 } = await supabase
           .from('channel_members')
-          .select('channel_id, channels(type)')
+          .select('channel_id, channels!inner(type)')
           .in('channel_id', userChannelIds)
-          .eq('user_id', botId);
+          .eq('user_id', botId)
+          .eq('channels.type', 'dm');
           
-        if (!err2 && commonMembers) {
-          const hasBotDm = commonMembers.some(m => m.channels && (m.channels as any).type === 'dm');
-          if (hasBotDm) {
-            console.log('[AuthContext] DM with bot already exists.');
-            return;
-          }
+        if (!err2 && commonMembers && commonMembers.length > 0) {
+          console.log('[AuthContext] DM with bot already exists.');
+          return;
         }
       }
 

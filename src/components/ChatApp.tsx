@@ -153,25 +153,26 @@ export const ChatApp: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 2 * 1024 * 1024) {
+      showToast("File size must be under 2MB.");
+      return;
+    }
+
     const sizeInKb = file.size / 1024;
     const formattedSize = sizeInKb > 1024 
       ? `${(sizeInKb / 1024).toFixed(1)} MB`
       : `${sizeInKb.toFixed(0)} KB`;
 
-    // Mock an attachment URL using standard unsplash images or object URL
-    let fileUrl = '';
-    if (file.type.startsWith('image/')) {
-      fileUrl = URL.createObjectURL(file);
-    } else {
-      fileUrl = '#';
-    }
-
-    setAttachedFile({
-      name: file.name,
-      size: formattedSize,
-      type: file.type,
-      url: fileUrl
-    });
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setAttachedFile({
+        name: file.name,
+        size: formattedSize,
+        type: file.type,
+        url: reader.result as string
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleToggleReaction = (msgId: string, emoji: string) => {

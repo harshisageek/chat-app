@@ -40,8 +40,17 @@ export const useChannels = (userId: string | undefined) => {
       })
       .subscribe();
 
+    // Subscribe to channel_members changes so DMs show up immediately after creation
+    const memberSubscription = supabase
+      .channel('channel_members_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_members' }, () => {
+        fetchChannels();
+      })
+      .subscribe();
+
     return () => {
       subscription.unsubscribe();
+      memberSubscription.unsubscribe();
     };
   }, [userId]);
 
@@ -120,6 +129,7 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
   const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([]);
   const channelRef = useRef<any>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false);
 
   useEffect(() => {
     if (!channelId || !userId) return;
@@ -162,18 +172,25 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
   const startTyping = useCallback(() => {
     if (!channelRef.current) return;
     
-    channelRef.current.track({ is_typing: true, name: userName || 'User' });
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      channelRef.current.track({ is_typing: true, name: userName || 'User' });
+    }
     
     // Auto-stop typing after 3 seconds of inactivity
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
+      isTypingRef.current = false;
       channelRef.current?.track({ is_typing: false, name: userName || 'User' });
     }, 3000);
   }, [userName]);
 
   const stopTyping = useCallback(() => {
     if (!channelRef.current) return;
-    channelRef.current.track({ is_typing: false, name: userName || 'User' });
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      channelRef.current.track({ is_typing: false, name: userName || 'User' });
+    }
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
   }, [userName]);
 
