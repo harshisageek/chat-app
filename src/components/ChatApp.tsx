@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useChannels, useMessages, useUsers } from '../hooks/useSupabase';
+import { useChannels, useMessages, useUsers, useTypingIndicator, useUnreadCounts, playNotificationSound } from '../hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import {
   MessageSquare, Hash, Users, FileText, Paperclip, Smile, Send, BookOpen,
-  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail
+  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail,
+  Volume2, VolumeX, CheckCheck
 } from 'lucide-react';
 
 const MOCK_EMOJIS = ['😀', '😂', '😍', '👍', '🎉', '🚀', '👀', '🔥', '💡', '✅', '👏', '🤔', '💪', '🌟', '❤️', '😎'];
@@ -20,11 +21,65 @@ export const ChatApp: React.FC = () => {
   const [activeChannelId, setActiveChannelId] = useState<string>(initialChannelId);
   const { messages } = useMessages(activeChannelId);
 
+  // ─── NEW: Typing indicators ───
+  const { typingUsers, startTyping, stopTyping } = useTypingIndicator(
+    activeChannelId, user?.id, profile?.full_name
+  );
+
+  // ─── NEW: Unread message counts ───
+  const { unreadCounts, markAsRead } = useUnreadCounts(channels, activeChannelId);
+
+  // ─── NEW: Notification sound mute toggle ───
+  const [isMuted, setIsMuted] = useState(() => {
+    return localStorage.getItem('chat_muted') === 'true';
+  });
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => {
+      const newVal = !prev;
+      localStorage.setItem('chat_muted', String(newVal));
+      return newVal;
+    });
+  }, []);
+
+  // ─── NEW: Listen for incoming messages globally for notification sound ───
+  const prevMsgCountRef = useRef<number>(0);
+  useEffect(() => {
+    if (messages.length > prevMsgCountRef.current && prevMsgCountRef.current > 0) {
+      const latestMsg = messages[messages.length - 1];
+      if (latestMsg && latestMsg.author_id !== user?.id && !isMuted) {
+        playNotificationSound();
+      }
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages.length, user?.id, isMuted]);
+
+  // ─── NEW: Play sound for messages in OTHER channels ───
+  useEffect(() => {
+    const sub = supabase
+      .channel('global_msg_notify')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        const msg = payload.new as any;
+        if (msg.channel_id !== activeChannelId && msg.author_id !== user?.id && !isMuted) {
+          playNotificationSound();
+        }
+      })
+      .subscribe();
+
+    return () => { sub.unsubscribe(); };
+  }, [activeChannelId, user?.id, isMuted]);
+
   useEffect(() => {
      if (!activeChannelId && overviewChannel) {
         setActiveChannelId(overviewChannel.id);
      }
   }, [channels, activeChannelId, overviewChannel]);
+
+  // ─── Channel switch handler with read tracking ───
+  const handleChannelSwitch = useCallback((channelId: string) => {
+    stopTyping();
+    markAsRead(channelId);
+    setActiveChannelId(channelId);
+  }, [stopTyping, markAsRead]);
 
   const [messageText, setMessageText] = useState('');
   const [showMembersModal, setShowMembersModal] = useState(false);
@@ -306,8 +361,9 @@ export const ChatApp: React.FC = () => {
           <div className="sidebar-section">
             <div className="section-title">Overview</div>
             {channels.filter(c => c.type === 'overview').map(ch => (
-              <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => setActiveChannelId(ch.id)}>
+              <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => handleChannelSwitch(ch.id)}>
                 {renderNavIcon(ch)}<span>{ch.name}</span>
+                {unreadCounts[ch.id] > 0 && <span className="unread-badge">{unreadCounts[ch.id]}</span>}
               </a>
             ))}
           </div>
@@ -320,8 +376,9 @@ export const ChatApp: React.FC = () => {
               </button>
             </div>
             {channels.filter(c => c.type === 'cohort').map(ch => (
-              <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => setActiveChannelId(ch.id)}>
+              <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => handleChannelSwitch(ch.id)}>
                 {renderNavIcon(ch)}<span>{ch.name}</span>
+                {unreadCounts[ch.id] > 0 && <span className="unread-badge">{unreadCounts[ch.id]}</span>}
               </a>
             ))}
           </div>
@@ -337,12 +394,13 @@ export const ChatApp: React.FC = () => {
               const peer = getDmPeer(ch);
               if (!peer) return null;
               return (
-                <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => setActiveChannelId(ch.id)}>
+                <a key={ch.id} className={`nav-item ${activeChannelId === ch.id ? 'active' : ''}`} onClick={() => handleChannelSwitch(ch.id)}>
                   {renderNavIcon(ch)}
                   <div className="nav-dm-info">
                     <span className="nav-dm-name">{peer.full_name}</span>
                     <span className={`status-dot ${peer.is_online ? 'online' : 'offline'}`} />
                   </div>
+                  {unreadCounts[ch.id] > 0 && <span className="unread-badge">{unreadCounts[ch.id]}</span>}
                 </a>
               );
             })}
@@ -396,6 +454,14 @@ export const ChatApp: React.FC = () => {
           </div>
           
           <div className="header-actions">
+            <button 
+              aria-label={isMuted ? 'Unmute notifications' : 'Mute notifications'} 
+              onClick={toggleMute}
+              title={isMuted ? 'Unmute notifications' : 'Mute notifications'}
+              className={isMuted ? 'muted' : ''}
+            >
+              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
             <button aria-label="Channel members" onClick={() => setShowMembersModal(true)}>
               <Users size={20} />
             </button>
@@ -423,6 +489,12 @@ export const ChatApp: React.FC = () => {
                       {author?.role === 'Mentor' && <span className="msg-role-tag font-bold">Mentor</span>}
                       {author?.role === 'Alumni' && <span className="msg-role-tag alumni font-bold">Alumni</span>}
                       <span className="msg-time">{formatTime(msg.created_at)}</span>
+                      {/* Read receipt for own messages */}
+                      {msg.author_id === user?.id && (
+                        <span className="read-receipt" title="Sent">
+                          <CheckCheck size={14} />
+                        </span>
+                      )}
                     </div>
                     <p className="msg-text">{msg.text}</p>
                     
@@ -517,6 +589,24 @@ export const ChatApp: React.FC = () => {
               );
             })
           )}
+
+          {/* ─── Typing Indicator ─── */}
+          {typingUsers.length > 0 && (
+            <div className="typing-indicator">
+              <div className="typing-dots">
+                <span /><span /><span />
+              </div>
+              <span>
+                {typingUsers.length === 1
+                  ? `${typingUsers[0].name} is typing...`
+                  : typingUsers.length === 2
+                    ? `${typingUsers[0].name} and ${typingUsers[1].name} are typing...`
+                    : `${typingUsers[0].name} and ${typingUsers.length - 1} others are typing...`
+                }
+              </span>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
 
@@ -543,14 +633,19 @@ export const ChatApp: React.FC = () => {
             <textarea
               placeholder={`Message ${activeChannel.type === 'dm' ? '' : '#'}${headerName}...`}
               value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
+              onChange={(e) => {
+                setMessageText(e.target.value);
+                if (e.target.value.trim()) startTyping();
+              }}
               disabled={activeChannel.type === 'overview'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
+                  stopTyping();
                   handleSendMessage();
                 }
               }}
+              onBlur={() => stopTyping()}
             />
             <div className="input-actions">
               <div className="action-buttons">

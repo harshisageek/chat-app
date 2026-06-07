@@ -1184,3 +1184,71 @@ select.form-input {
   opacity: 1 !important;
 }
 
+/* ─────────────── READ RECEIPTS ─────────────── */
+.read-receipt {
+  display: inline-flex;
+  align-items: center;
+  color: var(--primary-400);
+  margin-left: 2px;
+  animation: receiptIn 0.3s ease;
+}
+@keyframes receiptIn {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ─────────────── MUTE BUTTON ─────────────── */
+.header-actions button.muted {
+  color: var(--danger-color) !important;
+  opacity: 0.7;
+}
+.header-actions button.muted:hover {
+  opacity: 1;
+  background-color: rgba(239, 68, 68, 0.08) !important;
+  color: var(--danger-color) !important;
+}
+
+/* ─────────────── TYPING INDICATOR (enhanced) ─────────────── */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+  animation: fadeIn 0.3s ease;
+  margin-top: 4px;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 3px;
+}
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  background: var(--primary-400);
+  border-radius: var(--radius-full);
+  animation: typingBounce 1.4s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ─────────────── UNREAD BADGE (enhanced glow) ─────────────── */
+.unread-badge {
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  margin-left: auto;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4), 0 0 16px rgba(99, 102, 241, 0.15);
+  animation: badgePulse 2s ease-in-out infinite;
+}
