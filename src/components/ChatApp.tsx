@@ -150,7 +150,7 @@ export const ChatApp: React.FC = () => {
     setAttachedFile(null);
     setShowEmojiPicker(false);
 
-    await supabase.from('messages').insert([{
+    const { error } = await supabase.from('messages').insert([{
       channel_id: activeChannelId,
       author_id: user.id,
       text: text || `Sent an attachment: ${file?.name}`,
@@ -160,7 +160,12 @@ export const ChatApp: React.FC = () => {
       attachment_url: file?.url || null,
       reply_to: replyToMsgId || null
     }]);
-    setReplyToMsgId(null);
+    
+    if (error) {
+      showToast(`Failed to send: ${error.message}`);
+    } else {
+      setReplyToMsgId(null);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -236,11 +241,16 @@ export const ChatApp: React.FC = () => {
 
   const handleSaveEdit = async (msgId: string) => {
     if (!editMessageText.trim()) return;
-    await supabase.from('messages').update({ 
+    const { error } = await supabase.from('messages').update({ 
       text: editMessageText, 
       edited_at: new Date().toISOString() 
     }).eq('id', msgId);
-    setEditingMsgId(null);
+    
+    if (error) {
+      showToast(`Edit failed: ${error.message} (Did you add the SQL column?)`);
+    } else {
+      setEditingMsgId(null);
+    }
   };
 
   const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
@@ -339,6 +349,7 @@ export const ChatApp: React.FC = () => {
   };
 
   const highlightText = (text: string, highlight: string) => {
+    if (!text) return '';
     if (!highlight.trim()) return text;
     const regex = new RegExp(`(${highlight})`, 'gi');
     const parts = text.split(regex);
@@ -393,7 +404,7 @@ export const ChatApp: React.FC = () => {
   const headerName = activeChannel.type === 'dm' && dmPeer ? dmPeer.full_name : activeChannel.name;
   
   const filteredMessages = messages.filter(msg => 
-    msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+    (msg.text || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
