@@ -51,6 +51,7 @@ export type AttachedFile = {
   size: string;
   type: string;
   url?: string;
+  rawFile?: File;
 };
 
 export type Invitation = {

@@ -115,6 +115,8 @@ export const ChatApp: React.FC = () => {
   const [profileRole, setProfileRole] = useState<UserRole>(profile?.role || 'Student');
   const [profileColor, setProfileColor] = useState(profile?.color || '#4f46e5');
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [reactions, setReactions] = useState<Record<string, Record<string, number>>>({});
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
 
@@ -142,9 +144,37 @@ export const ChatApp: React.FC = () => {
       showToast("You cannot post directly to 'All Activity'.");
       return;
     }
+    
+    let finalAttachmentUrl = attachedFile?.url || null;
+    let finalAttachmentName = attachedFile?.name || null;
+    let finalAttachmentSize = attachedFile?.size || null;
+    let finalAttachmentType = attachedFile?.type || null;
+
+    if (attachedFile?.rawFile) {
+      setIsUploading(true);
+      const fileExt = attachedFile.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(filePath, attachedFile.rawFile);
+
+      setIsUploading(false);
+
+      if (uploadError) {
+        showToast(`Upload failed: ${uploadError.message} (Did you create the 'attachments' bucket?)`);
+        return;
+      }
+
+      const { data } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(filePath);
+
+      finalAttachmentUrl = data.publicUrl;
+    }
 
     const text = messageText;
-    const file = attachedFile;
     
     setMessageText('');
     setAttachedFile(null);
@@ -153,11 +183,11 @@ export const ChatApp: React.FC = () => {
     const { error } = await supabase.from('messages').insert([{
       channel_id: activeChannelId,
       author_id: user.id,
-      text: text || `Sent an attachment: ${file?.name}`,
-      attachment_name: file?.name || null,
-      attachment_size: file?.size || null,
-      attachment_type: file?.type || null,
-      attachment_url: file?.url || null,
+      text: text || `Sent an attachment: ${finalAttachmentName}`,
+      attachment_name: finalAttachmentName,
+      attachment_size: finalAttachmentSize,
+      attachment_type: finalAttachmentType,
+      attachment_url: finalAttachmentUrl,
       reply_to: replyToMsgId || null
     }]);
     
@@ -172,26 +202,20 @@ export const ChatApp: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      showToast("File size must be under 2MB.");
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File size must be less than 10MB');
       return;
     }
 
-    const sizeInKb = file.size / 1024;
-    const formattedSize = sizeInKb > 1024 
-      ? `${(sizeInKb / 1024).toFixed(1)} MB`
-      : `${sizeInKb.toFixed(0)} KB`;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setAttachedFile({
-        name: file.name,
-        size: formattedSize,
-        type: file.type,
-        url: reader.result as string
-      });
-    };
-    reader.readAsDataURL(file);
+    setAttachedFile({
+      name: file.name,
+      size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+      type: file.type,
+      url: URL.createObjectURL(file),
+      rawFile: file
+    });
+    
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleToggleReaction = (msgId: string, emoji: string) => {
@@ -836,10 +860,14 @@ export const ChatApp: React.FC = () => {
               
               <button 
                 className="send-button" 
-                disabled={(!messageText.trim() && !attachedFile) || activeChannel.type === 'overview'} 
+                disabled={(!messageText.trim() && !attachedFile) || activeChannel.type === 'overview' || isUploading} 
                 onClick={handleSendMessage}
               >
-                Send <Send size={16} />
+                {isUploading ? (
+                  <div style={{width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto'}} />
+                ) : (
+                  <>Send <Send size={16} /></>
+                )}
               </button>
             </div>
           </div>
