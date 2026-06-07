@@ -25,7 +25,6 @@ export const LoginPage: React.FC = () => {
           if (profile) setInviterName(profile.full_name);
         });
     } else if (inviteId) {
-      console.log('[LoginPage] Found invite token:', inviteId);
       supabase
         .from('invitations')
         .select('email, invited_by')

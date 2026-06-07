@@ -8,6 +8,7 @@ import {
   Volume2, VolumeX, CheckCheck, Search, Reply, Edit2
 } from 'lucide-react';
 import type { AttachedFile, Channel, ChannelMember, Message, UserProfile, UserRole } from '../types/chat';
+import { BOTS } from '../constants/bots';
 
 const MOCK_EMOJIS = ['😀', '😂', '😍', '👍', '🎉', '🚀', '👀', '🔥', '💡', '✅', '👏', '🤔', '💪', '🌟', '❤️', '😎'];
 
@@ -187,6 +188,37 @@ export const ChatApp: React.FC = () => {
       showToast(`Failed to send: ${error.message}`);
     } else {
       setReplyToMsgId(null);
+
+      // Trigger bot response if chatting with a bot
+      if (activeChannel?.type === 'dm' && activeChannel.channel_members) {
+        const peerMember = activeChannel.channel_members.find((m: ChannelMember) => m.user_id !== user.id);
+        if (peerMember) {
+          const bot = BOTS.find(b => b.id === peerMember.user_id);
+          if (bot) {
+            const responseDelay = Math.random() * 2000 + 1500; // 1.5 to 3.5 seconds
+            
+            // Set bot to typing
+            const typingChannel = supabase.channel(`typing:${activeChannelId}`);
+            typingChannel.subscribe(async (status) => {
+              if (status === 'SUBSCRIBED') {
+                await typingChannel.track({ user: bot.name, is_typing: true });
+                
+                setTimeout(async () => {
+                  await typingChannel.track({ user: bot.name, is_typing: false });
+                  typingChannel.unsubscribe();
+                  
+                  const botResponse = bot.responses[Math.floor(Math.random() * bot.responses.length)];
+                  await supabase.from('messages').insert([{
+                    channel_id: activeChannelId,
+                    author_id: bot.id,
+                    text: botResponse
+                  }]);
+                }, responseDelay);
+              }
+            });
+          }
+        }
+      }
     }
   };
 

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import type { Session, User } from '@supabase/supabase-js';
 import { AuthContext } from './auth';
 import type { Invitation, UserProfile } from '../types/chat';
+import { BOTS } from '../constants/bots';
 
 const COLORS = [
   '#4f46e5', '#7c3aed', '#db2777', '#dc2626',
@@ -21,67 +22,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const ensureBotDm = useCallback(async (userId: string) => {
+  const ensureBotDms = useCallback(async (userId: string) => {
     try {
-      const botId = '00000000-0000-0000-0000-000000000000';
+      for (const bot of BOTS) {
+        const botId = bot.id;
       
-      // Get all DM channel IDs that the user is in
-      const { data: userMembers, error: err1 } = await supabase
-        .from('channel_members')
-        .select('channel_id')
-        .eq('user_id', userId);
-        
-      if (err1 || !userMembers) return;
-      const userChannelIds = userMembers.map(m => m.channel_id);
-      
-      if (userChannelIds.length > 0) {
-        // Find if the bot is in any of these same channels, and confirm it's a DM
-        const { data: commonMembers, error: err2 } = await supabase
+        // Get all DM channel IDs that the user is in
+        const { data: userMembers, error: err1 } = await supabase
           .from('channel_members')
-          .select('channel_id, channels!inner(type)')
-          .in('channel_id', userChannelIds)
-          .eq('user_id', botId)
-          .eq('channels.type', 'dm');
+          .select('channel_id')
+          .eq('user_id', userId);
           
-        if (!err2 && commonMembers && commonMembers.length > 0) {
-          console.log('[AuthContext] DM with bot already exists.');
-          return;
+        if (err1 || !userMembers) continue;
+        const userChannelIds = userMembers.map(m => m.channel_id);
+        
+        if (userChannelIds.length > 0) {
+          // Find if the bot is in any of these same channels, and confirm it's a DM
+          const { data: commonMembers, error: err2 } = await supabase
+            .from('channel_members')
+            .select('channel_id, channels!inner(type)')
+            .in('channel_id', userChannelIds)
+            .eq('user_id', botId)
+            .eq('channels.type', 'dm');
+            
+          if (!err2 && commonMembers && commonMembers.length > 0) {
+            continue; // Move to next bot
+          }
         }
-      }
 
-      // Create a new DM channel with the bot
-      console.log('[AuthContext] Creating automatic DM with Bot Friend...');
-      const { data: newDm, error: dmError } = await supabase
-        .from('channels')
-        .insert([{
-          name: 'Direct Message',
-          type: 'dm',
-          icon_type: 'user',
-          created_by: userId
-        }])
-        .select()
-        .single();
+        const { data: newDm, error: dmError } = await supabase
+          .from('channels')
+          .insert([{
+            name: 'Direct Message',
+            type: 'dm',
+            icon_type: 'user',
+            created_by: userId
+          }])
+          .select()
+          .single();
 
-      if (dmError || !newDm) {
-        console.error('[AuthContext] Error creating DM channel with bot:', dmError);
-        return;
-      }
+        if (dmError || !newDm) {
+          continue;
+        }
 
-      // Add user and bot to the DM channel members list
-      const { error: memberError } = await supabase
-        .from('channel_members')
-        .insert([
-          { channel_id: newDm.id, user_id: userId },
-          { channel_id: newDm.id, user_id: botId }
-        ]);
-
-      if (memberError) {
-        console.error('[AuthContext] Error adding members to bot DM:', memberError);
-      } else {
-        console.log('[AuthContext] Bot DM created successfully!');
+        // Add user and bot to the DM channel members list
+        await supabase
+          .from('channel_members')
+          .insert([
+            { channel_id: newDm.id, user_id: userId },
+            { channel_id: newDm.id, user_id: botId }
+          ]);
       }
     } catch (err) {
-      console.error('[AuthContext] Exception in ensureBotDm:', err);
+      console.error('[AuthContext] Exception in ensureBotDms:', err);
     }
   }, []);
 
@@ -207,11 +200,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await processInvitations(authUser.email, authUser.id);
       }
       await processUniversalInvite(authUser.id);
-      await ensureBotDm(authUser.id);
+      await ensureBotDms(authUser.id);
     } else {
       console.error('[AuthContext] Error inserting profile in database:', error.message, error);
     }
-  }, [ensureBotDm, processInvitations, processUniversalInvite]);
+  }, [createProfile, ensureBotDms, processInvitations, processUniversalInvite]);
 
   const fetchProfile = useCallback(async (authUser: User) => {
     console.log(`[AuthContext] fetchProfile starting for user ID: ${authUser.id}, Email: ${authUser.email}`);
@@ -245,7 +238,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await processInvitations(authUser.email, authUser.id);
         }
         await processUniversalInvite(authUser.id);
-        await ensureBotDm(authUser.id);
+        await ensureBotDms(authUser.id);
       }
     } catch (err) {
       console.error('[AuthContext] Unexpected error in fetchProfile:', err);
