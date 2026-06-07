@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { useChannels, useMessages, useUsers, useTypingIndicator, useUnreadCounts, playNotificationSound } from '../hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import {
@@ -7,6 +7,7 @@ import {
   X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail,
   Volume2, VolumeX, CheckCheck
 } from 'lucide-react';
+import type { AttachedFile, Channel, ChannelMember, Message, UserProfile, UserRole } from '../types/chat';
 
 const MOCK_EMOJIS = ['😀', '😂', '😍', '👍', '🎉', '🚀', '👀', '🔥', '💡', '✅', '👏', '🤔', '💪', '🌟', '❤️', '😎'];
 
@@ -16,10 +17,11 @@ export const ChatApp: React.FC = () => {
   const { channels } = useChannels(user?.id);
   
   const overviewChannel = channels.find(c => c.type === 'overview');
-  const initialChannelId = overviewChannel?.id || '';
-  
-  const [activeChannelId, setActiveChannelId] = useState<string>(initialChannelId);
-  const { messages } = useMessages(activeChannelId);
+  const [selectedChannelId, setSelectedChannelId] = useState('');
+  const activeChannelId = selectedChannelId || overviewChannel?.id || '';
+  const activeChannel = channels.find(c => c.id === activeChannelId) || overviewChannel;
+  const visibleChannelIds = channels.map(channel => channel.id);
+  const { messages } = useMessages(activeChannelId, visibleChannelIds, activeChannel?.type === 'overview');
 
   // ─── NEW: Typing indicators ───
   const { typingUsers, startTyping, stopTyping } = useTypingIndicator(
@@ -27,7 +29,7 @@ export const ChatApp: React.FC = () => {
   );
 
   // ─── NEW: Unread message counts ───
-  const { unreadCounts, markAsRead } = useUnreadCounts(channels, activeChannelId);
+  const { unreadCounts, markAsRead } = useUnreadCounts(channels, activeChannelId, user?.id);
 
   // ─── NEW: Notification sound mute toggle ───
   const [isMuted, setIsMuted] = useState(() => {
@@ -51,14 +53,14 @@ export const ChatApp: React.FC = () => {
       }
     }
     prevMsgCountRef.current = messages.length;
-  }, [messages.length, user?.id, isMuted]);
+  }, [messages, user?.id, isMuted]);
 
   // ─── NEW: Play sound for messages in OTHER channels ───
   useEffect(() => {
     const sub = supabase
       .channel('global_msg_notify')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-        const msg = payload.new as any;
+        const msg = payload.new as Message;
         if (msg.channel_id !== activeChannelId && msg.author_id !== user?.id && !isMuted) {
           playNotificationSound();
         }
@@ -68,17 +70,11 @@ export const ChatApp: React.FC = () => {
     return () => { sub.unsubscribe(); };
   }, [activeChannelId, user?.id, isMuted]);
 
-  useEffect(() => {
-     if (!activeChannelId && overviewChannel) {
-        setActiveChannelId(overviewChannel.id);
-     }
-  }, [channels, activeChannelId, overviewChannel]);
-
   // ─── Channel switch handler with read tracking ───
   const handleChannelSwitch = useCallback((channelId: string) => {
     stopTyping();
     markAsRead(channelId);
-    setActiveChannelId(channelId);
+    setSelectedChannelId(channelId);
   }, [stopTyping, markAsRead]);
 
   const [messageText, setMessageText] = useState('');
@@ -96,24 +92,13 @@ export const ChatApp: React.FC = () => {
   // ─── NEW STATES ───
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileName, setProfileName] = useState(profile?.full_name || '');
-  const [profileRole, setProfileRole] = useState(profile?.role || 'Student');
+  const [profileRole, setProfileRole] = useState<UserRole>(profile?.role || 'Student');
   const [profileColor, setProfileColor] = useState(profile?.color || '#4f46e5');
-  const [attachedFile, setAttachedFile] = useState<{ name: string, size: string, type: string, url?: string } | null>(null);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [reactions, setReactions] = useState<Record<string, Record<string, number>>>({});
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
 
-  // Sync profile details when profile loads
-  useEffect(() => {
-    if (profile) {
-      setProfileName(profile.full_name);
-      setProfileRole(profile.role);
-      setProfileColor(profile.color);
-    }
-  }, [profile]);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const activeChannel = channels.find(c => c.id === activeChannelId) || overviewChannel;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -122,6 +107,13 @@ export const ChatApp: React.FC = () => {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const openProfileModal = () => {
+    setProfileName(profile?.full_name || '');
+    setProfileRole(profile?.role || 'Student');
+    setProfileColor(profile?.color || '#4f46e5');
+    setShowProfileModal(true);
   };
 
   const handleSendMessage = async () => {
@@ -205,7 +197,7 @@ export const ChatApp: React.FC = () => {
         setProfile({
           ...profile,
           full_name: profileName.trim(),
-          role: profileRole as any,
+          role: profileRole,
           color: profileColor
         });
       }
@@ -259,7 +251,7 @@ export const ChatApp: React.FC = () => {
 
     if (data) {
        await supabase.from('channel_members').insert([{ channel_id: data.id, user_id: user.id }]);
-       setActiveChannelId(data.id);
+       setSelectedChannelId(data.id);
     }
     
     setShowCreateChannelModal(false);
@@ -274,11 +266,11 @@ export const ChatApp: React.FC = () => {
     // Find existing DM
     const existingDm = channels.find(c => 
        c.type === 'dm' && 
-       c.channel_members?.some((m: any) => m.user_id === peerId)
+       c.channel_members?.some((m: ChannelMember) => m.user_id === peerId)
     );
 
     if (existingDm) {
-      setActiveChannelId(existingDm.id);
+      setSelectedChannelId(existingDm.id);
     } else {
       // Create new DM
       const { data: newDm } = await supabase.from('channels').insert([{
@@ -293,7 +285,7 @@ export const ChatApp: React.FC = () => {
           { channel_id: newDm.id, user_id: user.id },
           { channel_id: newDm.id, user_id: peerId }
         ]);
-        setActiveChannelId(newDm.id);
+        setSelectedChannelId(newDm.id);
       }
     }
 
@@ -304,9 +296,9 @@ export const ChatApp: React.FC = () => {
     return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const getDmPeer = (channel: any) => {
+  const getDmPeer = (channel: Channel) => {
      if (channel.type !== 'dm' || !user) return null;
-     const peerMember = channel.channel_members?.find((m: any) => m.user_id !== user.id);
+     const peerMember = channel.channel_members?.find((m: ChannelMember) => m.user_id !== user.id);
      return peerMember ? users[peerMember.user_id] : null;
   };
 
@@ -329,7 +321,7 @@ export const ChatApp: React.FC = () => {
     );
   };
 
-  const renderNavIcon = (channel: any) => {
+  const renderNavIcon = (channel: Channel) => {
     if (channel.type === 'dm') {
        const peer = getDmPeer(channel);
        if (peer?.avatar_url) return <img src={peer.avatar_url} alt="" className="nav-item-avatar" />;
@@ -414,7 +406,7 @@ export const ChatApp: React.FC = () => {
         <div className="sidebar-footer" style={{ cursor: 'default' }}>
           <div 
             style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', flex: 1, minWidth: 0 }}
-            onClick={() => setShowProfileModal(true)}
+            onClick={openProfileModal}
             title="Edit Profile"
           >
             {user && renderUserAvatar(user.id, 36)}
@@ -502,11 +494,11 @@ export const ChatApp: React.FC = () => {
                     {/* Render attachment if exists */}
                     {msg.attachment_name && (
                       msg.attachment_type?.startsWith('image/') ? (
-                        <div className="msg-image-attachment" style={{ cursor: 'pointer', marginTop: 8 }} onClick={() => window.open(msg.attachment_url, '_blank')}>
+                        <div className="msg-image-attachment" style={{ cursor: 'pointer', marginTop: 8 }} onClick={() => msg.attachment_url && window.open(msg.attachment_url, '_blank')}>
                           <img src={msg.attachment_url || ''} alt={msg.attachment_name} style={{ maxWidth: '100%', borderRadius: '8px' }} />
                         </div>
                       ) : (
-                        <div className="msg-attachment" style={{ marginTop: 8 }} onClick={() => window.open(msg.attachment_url, '_blank')}>
+                        <div className="msg-attachment" style={{ marginTop: 8 }} onClick={() => msg.attachment_url && window.open(msg.attachment_url, '_blank')}>
                           <FileText className="msg-attachment-icon" size={24} />
                           <div className="msg-attachment-info">
                             <h4>{msg.attachment_name}</h4>
@@ -779,6 +771,16 @@ export const ChatApp: React.FC = () => {
                   autoFocus
                 />
               </div>
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label>Channel Description</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="What should this channel be used for?"
+                  value={newChannelDesc}
+                  onChange={e => setNewChannelDesc(e.target.value)}
+                />
+              </div>
               <button className="form-submit-btn" disabled={!newChannelName.trim()} onClick={handleCreateChannel}>
                 <Hash size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                 Create Channel
@@ -811,7 +813,7 @@ export const ChatApp: React.FC = () => {
                 <label style={{ color: '#475569', fontSize: '0.78rem', fontWeight: 600 }}>Your Role</label>
                 <select
                   value={profileRole}
-                  onChange={e => setProfileRole(e.target.value as any)}
+                  onChange={e => setProfileRole(e.target.value as UserRole)}
                   style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', backgroundColor: '#f8fafc', color: '#0f172a', marginTop: 4 }}
                 >
                   <option value="Student">Student</option>
@@ -862,9 +864,9 @@ export const ChatApp: React.FC = () => {
             </div>
             <div className="modal-body">
               <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {Object.values(users).map((u: any) => {
+                {Object.values(users).map((u: UserProfile) => {
                   const isMember = activeChannel.type === 'overview' || 
-                    (activeChannel.channel_members && activeChannel.channel_members.some((m: any) => m.user_id === u.id)) ||
+                    (activeChannel.channel_members && activeChannel.channel_members.some((m: ChannelMember) => m.user_id === u.id)) ||
                     u.id === '00000000-0000-0000-0000-000000000000'; // bot is always member
                   
                   if (!isMember) return null;
@@ -896,7 +898,7 @@ export const ChatApp: React.FC = () => {
               <X className="modal-close" onClick={() => setShowPeersModal(false)} />
             </div>
             <div className="modal-body">
-              {Object.values(users).filter(u => u.id !== user?.id).map((u: any) => (
+              {Object.values(users).filter(u => u.id !== user?.id).map((u: UserProfile) => (
                   <div key={u.id} className="member-item" style={{ justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       {renderUserAvatar(u.id, 36)}

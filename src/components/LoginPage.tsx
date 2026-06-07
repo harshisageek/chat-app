@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { BookOpen, Mail, Send, Loader2 } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import { BookOpen, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 export const LoginPage: React.FC = () => {
-  const { signInWithEmail } = useAuth();
-  const [email, setEmail] = useState('');
+  const { signInWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [inviterName, setInviterName] = useState<string | null>(null);
@@ -23,7 +22,6 @@ export const LoginPage: React.FC = () => {
         .single()
         .then(({ data: invite, error }) => {
           if (invite && !error) {
-            setEmail(invite.email);
             supabase
               .from('profiles')
               .select('full_name')
@@ -39,23 +37,18 @@ export const LoginPage: React.FC = () => {
     }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim()) return;
-    
+  const handleGoogleSignIn = async () => {
     setLoading(true);
     setMessage(null);
     
     try {
-      const { error } = await signInWithEmail(email);
+      const { error } = await signInWithGoogle();
       if (error) {
         setMessage({ type: 'error', text: error.message });
-      } else {
-        setMessage({ type: 'success', text: 'Check your email for the login link!' });
-        setEmail('');
       }
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'An error occurred' });
+    } catch (err: unknown) {
+      const text = err instanceof Error ? err.message : 'An error occurred';
+      setMessage({ type: 'error', text });
     } finally {
       setLoading(false);
     }
@@ -80,33 +73,22 @@ export const LoginPage: React.FC = () => {
             marginBottom: '20px', fontSize: '0.88rem', 
             color: '#c7d2fe', textAlign: 'center', lineHeight: '1.4'
           }}>
-            👋 <strong>{inviterName}</strong> has invited you to join them on <strong>Chat App</strong>! We've prefilled your email below.
+            <strong>{inviterName}</strong> has invited you to join them on <strong>Chat App</strong>.
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="login-input-group">
-            <Mail className="login-input-icon" size={20} />
-            <input
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={loading}
-              required
-            />
-          </div>
-
-          <button type="submit" className="login-btn" disabled={loading || !email.trim()}>
+        <div className="login-form">
+          <button type="button" className="google-login-btn" disabled={loading} onClick={handleGoogleSignIn}>
             {loading ? (
               <Loader2 className="animate-spin" size={20} />
             ) : (
               <>
-                Send Link <Send size={18} />
+                <span className="google-icon" aria-hidden="true">G</span>
+                Continue with Google
               </>
             )}
           </button>
-        </form>
+        </div>
 
         {message && (
           <div className={`login-message ${message.type}`}>

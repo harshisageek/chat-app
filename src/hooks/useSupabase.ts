@@ -1,8 +1,10 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { Channel, ChannelMember, Message, UserProfile } from '../types/chat';
 
 export const useChannels = (userId: string | undefined) => {
-  const [channels, setChannels] = useState<any[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
 
   useEffect(() => {
     if (!userId) return;
@@ -14,19 +16,19 @@ export const useChannels = (userId: string | undefined) => {
         .from('channels')
         .select(`
           *,
-          channel_members(user_id)
+          channel_members(channel_id, user_id, last_read_at)
         `);
 
       if (!error && data) {
          // Filter: overview/cohort (visible to all), or DM where user is a member
-         const validChannels = data.filter(c => 
-            c.type !== 'dm' || (c.channel_members && c.channel_members.some((m: any) => m.user_id === userId))
+         const validChannels = (data as Channel[]).filter(c =>
+            c.type !== 'dm' || c.channel_members?.some((m: ChannelMember) => m.user_id === userId)
          );
          setChannels(validChannels);
       } else {
          // Fallback if the join fails due to RLS or schema issues
          const { data: allChannels } = await supabase.from('channels').select('*');
-         if (allChannels) setChannels(allChannels);
+         if (allChannels) setChannels(allChannels as Channel[]);
       }
     };
 
@@ -57,50 +59,68 @@ export const useChannels = (userId: string | undefined) => {
   return { channels };
 };
 
-export const useMessages = (channelId: string) => {
-  const [messages, setMessages] = useState<any[]>([]);
+export const useMessages = (channelId: string, visibleChannelIds: string[] = [], isOverview = false) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const visibleChannelKey = useMemo(() => visibleChannelIds.join(','), [visibleChannelIds]);
 
   useEffect(() => {
     if (!channelId) return;
+    const channelIds = visibleChannelKey ? visibleChannelKey.split(',') : [];
 
     const fetchMessages = async () => {
-      const { data } = await supabase
+      let query = supabase
         .from('messages')
         .select('*')
-        .eq('channel_id', channelId)
         .order('created_at', { ascending: true });
+
+      if (isOverview) {
+        if (channelIds.length === 0) {
+          setMessages([]);
+          return;
+        }
+        query = query.in('channel_id', channelIds);
+      } else {
+        query = query.eq('channel_id', channelId);
+      }
+
+      const { data } = await query;
       if (data) setMessages(data);
     };
 
     fetchMessages();
 
+    const messageFilter = isOverview ? undefined : `channel_id=eq.${channelId}`;
     const subscription = supabase
-      .channel(`messages_${channelId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` }, payload => {
-        setMessages(prev => [...prev, payload.new]);
+      .channel(isOverview ? `messages_overview_${visibleChannelKey}` : `messages_${channelId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: messageFilter }, payload => {
+        const message = payload.new as Message;
+        if (isOverview && !channelIds.includes(message.channel_id)) return;
+        setMessages(prev => prev.some(existing => existing.id === message.id) ? prev : [...prev, message]);
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `channel_id=eq.${channelId}` }, payload => {
-        setMessages(prev => prev.filter(m => m.id !== payload.old.id));
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: messageFilter }, payload => {
+        const deleted = payload.old as Pick<Message, 'id' | 'channel_id'>;
+        if (isOverview && !channelIds.includes(deleted.channel_id)) return;
+        setMessages(prev => prev.filter(m => m.id !== deleted.id));
       })
       .subscribe();
 
     return () => {
       subscription.unsubscribe();
     };
-  }, [channelId]);
+  }, [channelId, isOverview, visibleChannelKey]);
 
   return { messages };
 };
 
 export const useUsers = () => {
-  const [users, setUsers] = useState<Record<string, any>>({});
+  const [users, setUsers] = useState<Record<string, UserProfile>>({});
 
   useEffect(() => {
     const fetchUsers = async () => {
       const { data } = await supabase.from('profiles').select('*');
       if (data) {
-        const userMap: Record<string, any> = {};
-        data.forEach(u => userMap[u.id] = u);
+        const userMap: Record<string, UserProfile> = {};
+        (data as UserProfile[]).forEach(u => userMap[u.id] = u);
         setUsers(userMap);
       }
     };
@@ -111,7 +131,8 @@ export const useUsers = () => {
       .channel('profiles_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, payload => {
         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-           setUsers(prev => ({ ...prev, [payload.new.id]: payload.new }));
+           const profile = payload.new as UserProfile;
+           setUsers(prev => ({ ...prev, [profile.id]: profile }));
         }
       })
       .subscribe();
@@ -127,7 +148,7 @@ export const useUsers = () => {
 // ─────────────── TYPING INDICATOR ───────────────
 export const useTypingIndicator = (channelId: string, userId: string | undefined, userName: string | undefined) => {
   const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([]);
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
 
@@ -145,7 +166,7 @@ export const useTypingIndicator = (channelId: string, userId: string | undefined
         
         Object.entries(state).forEach(([key, presences]) => {
           if (key !== userId && Array.isArray(presences)) {
-            const p = presences[0] as any;
+            const p = presences[0] as { is_typing?: boolean; name?: string };
             if (p?.is_typing) {
               typers.push({ id: key, name: p.name || 'Someone' });
             }
@@ -214,32 +235,75 @@ const setLastRead = (channelId: string, timestamp: string) => {
   localStorage.setItem(LAST_READ_KEY, JSON.stringify(map));
 };
 
-export const useUnreadCounts = (channels: any[], activeChannelId: string) => {
+const getChannelLastRead = (channel: Channel, userId: string | undefined) => {
+  return channel.channel_members?.find(member => member.user_id === userId)?.last_read_at;
+};
+
+export const useUnreadCounts = (channels: Channel[], activeChannelId: string, userId: string | undefined) => {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const lastOverviewReadKeyRef = useRef('');
+
+  const persistChannelsAsRead = useCallback(async (channelIds: string[]) => {
+    if (channelIds.length === 0) return;
+    const readAt = new Date().toISOString();
+    channelIds.forEach(channelId => setLastRead(channelId, readAt));
+
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('channel_members')
+      .upsert(
+        channelIds.map(channelId => ({ channel_id: channelId, user_id: userId, last_read_at: readAt })),
+        { onConflict: 'channel_id,user_id' }
+      );
+
+    if (error) {
+      console.warn('[useUnreadCounts] Could not persist read state:', error.message);
+    }
+  }, [userId]);
+
+  const markAsRead = useCallback(async (channelId: string) => {
+    if (!channelId) return;
+
+    setUnreadCounts(prev => ({ ...prev, [channelId]: 0 }));
+    await persistChannelsAsRead([channelId]);
+  }, [persistChannelsAsRead]);
 
   // Mark active channel as read
   useEffect(() => {
-    if (activeChannelId) {
-      setLastRead(activeChannelId, new Date().toISOString());
-      setUnreadCounts(prev => ({ ...prev, [activeChannelId]: 0 }));
+    if (!activeChannelId) return;
+
+    const activeChannel = channels.find(channel => channel.id === activeChannelId);
+    if (activeChannel?.type === 'overview') {
+      const channelIds = channels.map(channel => channel.id);
+      const overviewReadKey = `${userId || 'anonymous'}:${channelIds.join(',')}`;
+      if (overviewReadKey !== lastOverviewReadKeyRef.current) {
+        lastOverviewReadKeyRef.current = overviewReadKey;
+        persistChannelsAsRead(channelIds);
+      }
+      return;
     }
-  }, [activeChannelId]);
+
+    persistChannelsAsRead([activeChannelId]);
+  }, [activeChannelId, channels, persistChannelsAsRead, userId]);
 
   // Fetch unread counts for all channels
   useEffect(() => {
-    if (channels.length === 0) return;
+    if (!userId || channels.length === 0) return;
 
     const fetchUnreads = async () => {
       const lastReadMap = getLastReadMap();
+      const activeChannel = channels.find(channel => channel.id === activeChannelId);
+      const activeIsOverview = activeChannel?.type === 'overview';
       const counts: Record<string, number> = {};
 
       for (const ch of channels) {
-        if (ch.id === activeChannelId) {
+        if (ch.id === activeChannelId || activeIsOverview) {
           counts[ch.id] = 0;
           continue;
         }
         
-        const lastRead = lastReadMap[ch.id];
+        const lastRead = getChannelLastRead(ch, userId) || lastReadMap[ch.id];
         if (!lastRead) {
           // Never read — count all messages
           const { count } = await supabase
@@ -266,8 +330,12 @@ export const useUnreadCounts = (channels: any[], activeChannelId: string) => {
     const sub = supabase
       .channel('unread_messages_global')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-        const msgChannelId = (payload.new as any).channel_id;
-        if (msgChannelId !== activeChannelId) {
+        const msgChannelId = (payload.new as Message).channel_id;
+        const activeChannel = channels.find(channel => channel.id === activeChannelId);
+        const messageIsVisible = channels.some(channel => channel.id === msgChannelId);
+        const shouldIncrement = messageIsVisible && msgChannelId !== activeChannelId && activeChannel?.type !== 'overview';
+
+        if (shouldIncrement) {
           setUnreadCounts(prev => ({
             ...prev,
             [msgChannelId]: (prev[msgChannelId] || 0) + 1
@@ -279,23 +347,29 @@ export const useUnreadCounts = (channels: any[], activeChannelId: string) => {
     return () => {
       sub.unsubscribe();
     };
-  }, [channels.length, activeChannelId]);
+  }, [channels, activeChannelId, userId]);
 
-  const markAsRead = useCallback((channelId: string) => {
-    setLastRead(channelId, new Date().toISOString());
-    setUnreadCounts(prev => ({ ...prev, [channelId]: 0 }));
-  }, []);
+  const visibleUnreadCounts = useMemo(
+    () => activeChannelId ? { ...unreadCounts, [activeChannelId]: 0 } : unreadCounts,
+    [unreadCounts, activeChannelId]
+  );
 
-  return { unreadCounts, markAsRead };
+  return { unreadCounts: visibleUnreadCounts, markAsRead };
 };
 
 // ─────────────── NOTIFICATION SOUND ───────────────
 let audioCtx: AudioContext | null = null;
 
+type WindowWithWebkitAudioContext = Window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
 export const playNotificationSound = () => {
   try {
     if (!audioCtx) {
-      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextCtor = window.AudioContext || (window as WindowWithWebkitAudioContext).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      audioCtx = new AudioContextCtor();
     }
     
     const now = audioCtx.currentTime;
@@ -322,7 +396,7 @@ export const playNotificationSound = () => {
     // Two-note chime: E5 → G5
     playTone(659.25, now, 0.15, 0.12);
     playTone(783.99, now + 0.12, 0.2, 0.10);
-  } catch (e) {
+  } catch {
     // Audio not available, fail silently
   }
 };

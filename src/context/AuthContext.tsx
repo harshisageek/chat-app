@@ -1,27 +1,8 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Session, User } from '@supabase/supabase-js';
-
-type UserProfile = {
-  id: string;
-  email: string;
-  full_name: string;
-  avatar_url?: string | null;
-  color: string;
-  role: 'Student' | 'Mentor' | 'Alumni';
-};
-
-type AuthContextType = {
-  user: User | null;
-  profile: UserProfile | null;
-  session: Session | null;
-  loading: boolean;
-  signInWithEmail: (email: string) => Promise<{ error: any }>;
-  signOut: () => Promise<void>;
-  setProfile: React.Dispatch<React.SetStateAction<UserProfile | null>>;
-};
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import { AuthContext } from './auth';
+import type { Invitation, UserProfile } from '../types/chat';
 
 const COLORS = [
   '#4f46e5', '#7c3aed', '#db2777', '#dc2626',
@@ -29,128 +10,18 @@ const COLORS = [
   '#0284c7', '#2563eb', '#4338ca', '#7e22ce',
 ];
 
+const pickProfileColor = (seed: string) => {
+  const hash = Array.from(seed).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return COLORS[hash % COLORS.length];
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    console.log('[AuthContext] Initializing AuthProvider...');
-    
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('[AuthContext] getSession result:', session ? `User ID: ${session.user.id}` : 'No active session');
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user);
-      } else {
-        console.log('[AuthContext] No user in initial session, setting loading to false');
-        setLoading(false);
-      }
-    }).catch(err => {
-      console.error('[AuthContext] getSession error:', err);
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log(`[AuthContext] onAuthStateChange event: ${event}`, session ? `User ID: ${session.user.id}` : 'No session');
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user);
-      } else {
-        setProfile(null);
-        console.log('[AuthContext] No user in auth change event, setting loading to false');
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      console.log('[AuthContext] Cleaning up AuthProvider subscription...');
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  const fetchProfile = async (user: User) => {
-    console.log(`[AuthContext] fetchProfile starting for user ID: ${user.id}, Email: ${user.email}`);
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error) {
-        console.warn('[AuthContext] fetchProfile database error:', error);
-        if (error.code === 'PGRST116') {
-          console.log('[AuthContext] Profile does not exist (PGRST116). Attempting to create profile...');
-          await createProfile(user);
-        } else {
-          console.error('[AuthContext] Unexpected database error fetching profile:', error.message, error);
-        }
-      } else if (data) {
-        console.log('[AuthContext] Profile fetched successfully:', data);
-        setProfile(data as UserProfile);
-        
-        // Update online status
-        console.log('[AuthContext] Updating profile online status...');
-        const { error: updateError } = await supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', user.id);
-        if (updateError) {
-          console.error('[AuthContext] Error updating profile online status:', updateError);
-        }
-        
-        // Handle pending invitations
-        console.log('[AuthContext] Processing channel invitations...');
-        await processInvitations(user.email, data.id);
-        
-        // Ensure DM with Bot Friend exists
-        await ensureBotDm(data.id);
-      } else {
-        console.warn('[AuthContext] fetchProfile returned no data and no error.');
-      }
-    } catch (err) {
-      console.error('[AuthContext] Caught exception in fetchProfile:', err);
-    } finally {
-      console.log('[AuthContext] fetchProfile finished. Setting loading to false.');
-      setLoading(false);
-    }
-  };
-
-  const createProfile = async (user: User) => {
-    const defaultName = user.email ? user.email.split('@')[0] : 'New User';
-    const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
-    
-    const newProfile = {
-      id: user.id,
-      email: user.email || '',
-      full_name: defaultName,
-      avatar_url: null,
-      color: randomColor,
-      role: 'Student' as const,
-      is_online: true,
-      last_seen: new Date().toISOString()
-    };
-
-    console.log('[AuthContext] Inserting new profile in database:', newProfile);
-    const { error } = await supabase.from('profiles').insert([newProfile]);
-    if (!error) {
-      console.log('[AuthContext] Profile created successfully in database!');
-      setProfile(newProfile as UserProfile);
-      if (user.email) {
-        console.log('[AuthContext] Processing channel invitations for new user...');
-        await processInvitations(user.email, user.id);
-      }
-      // Ensure DM with Bot Friend exists
-      await ensureBotDm(user.id);
-    } else {
-      console.error('[AuthContext] Error inserting profile in database:', error.message, error);
-    }
-  };
-
-  const ensureBotDm = async (userId: string) => {
+  const ensureBotDm = useCallback(async (userId: string) => {
     try {
       const botId = '00000000-0000-0000-0000-000000000000';
       
@@ -212,9 +83,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.error('[AuthContext] Exception in ensureBotDm:', err);
     }
-  };
+  }, []);
 
-  const processInvitations = async (email: string | undefined, userId: string) => {
+  const processInvitations = useCallback(async (email: string | undefined, userId: string) => {
     if (!email) return;
     
     // Check if user was invited to any channels
@@ -225,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .eq('status', 'pending');
 
     if (invites && invites.length > 0) {
-      for (const invite of invites) {
+      for (const invite of invites as Invitation[]) {
         if (invite.channel_id) {
           // Add to channel
           await supabase.from('channel_members').insert([
@@ -273,7 +144,114 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await supabase.from('invitations').update({ status: 'accepted' }).eq('id', invite.id);
       }
     }
-  };
+  }, []);
+
+  const createProfile = useCallback(async (authUser: User) => {
+    const defaultName = authUser.email ? authUser.email.split('@')[0] : 'New User';
+    const newProfile: UserProfile = {
+      id: authUser.id,
+      email: authUser.email || '',
+      full_name: defaultName,
+      avatar_url: null,
+      color: pickProfileColor(authUser.id || authUser.email || defaultName),
+      role: 'Student',
+      is_online: true,
+      last_seen: new Date().toISOString()
+    };
+
+    console.log('[AuthContext] Inserting new profile in database:', newProfile);
+    const { error } = await supabase.from('profiles').insert([newProfile]);
+    if (!error) {
+      console.log('[AuthContext] Profile created successfully in database!');
+      setProfile(newProfile);
+      if (authUser.email) {
+        console.log('[AuthContext] Processing channel invitations for new user...');
+        await processInvitations(authUser.email, authUser.id);
+      }
+      await ensureBotDm(authUser.id);
+    } else {
+      console.error('[AuthContext] Error inserting profile in database:', error.message, error);
+    }
+  }, [ensureBotDm, processInvitations]);
+
+  const fetchProfile = useCallback(async (authUser: User) => {
+    console.log(`[AuthContext] fetchProfile starting for user ID: ${authUser.id}, Email: ${authUser.email}`);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error) {
+        console.warn('[AuthContext] fetchProfile database error:', error);
+        if (error.code === 'PGRST116') {
+          console.log('[AuthContext] Profile does not exist (PGRST116). Attempting to create profile...');
+          await createProfile(authUser);
+        } else {
+          console.error('[AuthContext] Unexpected database error fetching profile:', error.message, error);
+        }
+      } else if (data) {
+        const loadedProfile = data as UserProfile;
+        console.log('[AuthContext] Profile fetched successfully:', loadedProfile);
+        setProfile(loadedProfile);
+        
+        console.log('[AuthContext] Updating profile online status...');
+        const { error: updateError } = await supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', authUser.id);
+        if (updateError) {
+          console.error('[AuthContext] Error updating profile online status:', updateError);
+        }
+        
+        console.log('[AuthContext] Processing channel invitations...');
+        await processInvitations(authUser.email, loadedProfile.id);
+        await ensureBotDm(loadedProfile.id);
+      } else {
+        console.warn('[AuthContext] fetchProfile returned no data and no error.');
+      }
+    } catch (err) {
+      console.error('[AuthContext] Caught exception in fetchProfile:', err);
+    } finally {
+      console.log('[AuthContext] fetchProfile finished. Setting loading to false.');
+      setLoading(false);
+    }
+  }, [createProfile, ensureBotDm, processInvitations]);
+
+  useEffect(() => {
+    console.log('[AuthContext] Initializing AuthProvider...');
+    
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('[AuthContext] getSession result:', session ? `User ID: ${session.user.id}` : 'No active session');
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user);
+      } else {
+        console.log('[AuthContext] No user in initial session, setting loading to false');
+        setLoading(false);
+      }
+    }).catch(err => {
+      console.error('[AuthContext] getSession error:', err);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[AuthContext] onAuthStateChange event: ${event}`, session ? `User ID: ${session.user.id}` : 'No session');
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user);
+      } else {
+        setProfile(null);
+        console.log('[AuthContext] No user in auth change event, setting loading to false');
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      console.log('[AuthContext] Cleaning up AuthProvider subscription...');
+      subscription.unsubscribe();
+    };
+  }, [fetchProfile]);
 
   const signInWithEmail = async (email: string) => {
     return await supabase.auth.signInWithOtp({
@@ -281,6 +259,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       options: {
         // Redirect to same URL we're on
         emailRedirectTo: window.location.origin
+      }
+    });
+  };
+
+  const signInWithGoogle = async () => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteId = params.get('invite');
+    const redirectTo = inviteId
+      ? `${window.location.origin}/?invite=${encodeURIComponent(inviteId)}`
+      : window.location.origin;
+
+    return await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account'
+        }
       }
     });
   };
@@ -293,16 +290,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signInWithEmail, signOut, setProfile }}>
+    <AuthContext.Provider value={{ user, profile, session, loading, signInWithEmail, signInWithGoogle, signOut, setProfile }}>
       {children}
     </AuthContext.Provider>
   );
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };
