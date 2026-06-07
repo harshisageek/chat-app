@@ -168,16 +168,21 @@ export const ChatApp: React.FC = () => {
     setAttachedFile(null);
     setShowEmojiPicker(false);
 
-    const { error } = await supabase.from('messages').insert([{
+    const messagePayload: any = {
       channel_id: activeChannelId,
       author_id: user.id,
       text: text || `Sent an attachment: ${finalAttachmentName}`,
       attachment_name: finalAttachmentName,
       attachment_size: finalAttachmentSize,
       attachment_type: finalAttachmentType,
-      attachment_url: finalAttachmentUrl,
-      reply_to: replyToMsgId || null
-    }]);
+      attachment_url: finalAttachmentUrl
+    };
+
+    if (replyToMsgId) {
+      messagePayload.reply_to = replyToMsgId;
+    }
+
+    const { error } = await supabase.from('messages').insert([messagePayload]);
     
     if (error) {
       showToast(`Failed to send: ${error.message}`);
