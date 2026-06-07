@@ -42,6 +42,8 @@ export type Message = {
   attachment_type: string | null;
   attachment_url: string | null;
   created_at: string;
+  edited_at?: string | null;
+  reply_to?: string | null;
 };
 
 export type AttachedFile = {

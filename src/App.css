@@ -410,8 +410,29 @@
   align-items: center;
   gap: 12px;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
 }
+
+[data-theme="dark"] {
+  --bg-main: #0f172a;
+  --bg-sidebar: #020617;
+  --bg-chat: #1e293b;
+  
+  --text-main: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #475569;
+  
+  --border-color: #334155;
+  --border-subtle: #1e293b;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
 .sidebar-footer:hover {
   background: var(--bg-sidebar-hover);
 }
@@ -1292,4 +1313,149 @@ select.form-input {
   margin-left: auto;
   box-shadow: 0 0 8px rgba(99, 102, 241, 0.4), 0 0 16px rgba(99, 102, 241, 0.15);
   animation: badgePulse 2s ease-in-out infinite;
+}
+
+/* ─────────────── TIER 2 FEATURES ─────────────── */
+
+/* Message Search */
+.search-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  margin-right: 8px;
+  transition: all var(--transition-fast);
+}
+.search-input-container:focus-within {
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.1);
+}
+.search-input-container input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  width: 140px;
+  padding: 4px;
+}
+.search-input-container input::placeholder {
+  color: var(--text-faint);
+}
+.search-highlight {
+  background-color: rgba(250, 204, 21, 0.4);
+  border-radius: 2px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
+/* Date Dividers */
+.date-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 24px 0;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.date-divider::before,
+.date-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border-color);
+}
+.date-divider:not(:empty)::before {
+  margin-right: 12px;
+}
+.date-divider:not(:empty)::after {
+  margin-left: 12px;
+}
+
+/* Replying & Editing */
+.reply-banner {
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.reply-banner .cancel-btn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+.reply-banner .cancel-btn:hover {
+  color: var(--danger-color);
+}
+.quoted-message {
+  border-left: 3px solid var(--primary-400);
+  padding: 4px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-main);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.quoted-message:hover {
+  background: var(--border-subtle);
+}
+.quoted-author {
+  font-weight: 650;
+  font-size: 0.75rem;
+  margin-bottom: 2px;
+  color: var(--text-main);
+}
+.edited-label {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  margin-left: 6px;
+  font-style: italic;
+}
+.edit-message-input {
+  width: 100%;
+  background: var(--bg-main);
+  border: 1px solid var(--primary-400);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.95rem;
+  outline: none;
+  margin-top: 4px;
+}
+.edit-message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+.edit-message-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+  transition: color var(--transition-fast);
+}
+.edit-message-actions button.save {
+  color: var(--primary-600);
+}
+.edit-message-actions button:hover {
+  filter: brightness(0.8);
 }

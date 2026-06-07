@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import {
   MessageSquare, Hash, Users, FileText, Paperclip, Smile, Send, BookOpen,
   X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail,
-  Volume2, VolumeX, CheckCheck
+  Volume2, VolumeX, CheckCheck, Moon, Sun, Search, Reply, Edit2
 } from 'lucide-react';
 import type { AttachedFile, Channel, ChannelMember, Message, UserProfile, UserRole } from '../types/chat';
 
@@ -42,6 +42,26 @@ export const ChatApp: React.FC = () => {
       return newVal;
     });
   }, []);
+
+  // ─── TIER 2: Dark Mode ───
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('chat_theme') as 'light' | 'dark') || 'light';
+  });
+  
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('chat_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
+
+  // ─── TIER 2: Search ───
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // ─── TIER 2: Reply & Edit ───
+  const [replyToMsgId, setReplyToMsgId] = useState<string | null>(null);
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editMessageText, setEditMessageText] = useState('');
 
   // ─── NEW: Listen for incoming messages globally for notification sound ───
   const prevMsgCountRef = useRef<number>(0);
@@ -137,8 +157,10 @@ export const ChatApp: React.FC = () => {
       attachment_name: file?.name || null,
       attachment_size: file?.size || null,
       attachment_type: file?.type || null,
-      attachment_url: file?.url || null
+      attachment_url: file?.url || null,
+      reply_to: replyToMsgId || null
     }]);
+    setReplyToMsgId(null);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,6 +232,15 @@ export const ChatApp: React.FC = () => {
   const handleDeleteMessage = async (msgId: string) => {
     await supabase.from('messages').delete().eq('id', msgId);
     showToast('Message deleted');
+  };
+
+  const handleSaveEdit = async (msgId: string) => {
+    if (!editMessageText.trim()) return;
+    await supabase.from('messages').update({ 
+      text: editMessageText, 
+      edited_at: new Date().toISOString() 
+    }).eq('id', msgId);
+    setEditingMsgId(null);
   };
 
   const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
@@ -295,6 +326,26 @@ export const ChatApp: React.FC = () => {
   const formatTime = (isoString: string) => {
     return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+  
+  const formatDateDivider = (isoString: string) => {
+    const d = new Date(isoString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const highlightText = (text: string, highlight: string) => {
+    if (!highlight.trim()) return text;
+    const regex = new RegExp(`(${highlight})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) => 
+      regex.test(part) ? <span key={i} className="search-highlight">{part}</span> : part
+    );
+  };
 
   const getDmPeer = (channel: Channel) => {
      if (channel.type !== 'dm' || !user) return null;
@@ -340,6 +391,10 @@ export const ChatApp: React.FC = () => {
 
   const dmPeer = getDmPeer(activeChannel);
   const headerName = activeChannel.type === 'dm' && dmPeer ? dmPeer.full_name : activeChannel.name;
+  
+  const filteredMessages = messages.filter(msg => 
+    msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="app-layout">
@@ -447,6 +502,22 @@ export const ChatApp: React.FC = () => {
           </div>
           
           <div className="header-actions">
+            <div className="search-input-container">
+              <Search size={14} color="var(--text-faint)" />
+              <input 
+                type="text" 
+                placeholder="Search messages..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <button 
+              aria-label="Toggle dark mode" 
+              onClick={toggleTheme}
+              title="Toggle theme"
+            >
+              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
             <button 
               aria-label={isMuted ? 'Unmute notifications' : 'Mute notifications'} 
               onClick={toggleMute}
@@ -462,22 +533,37 @@ export const ChatApp: React.FC = () => {
         </header>
 
         <div className="chat-messages">
-          {messages.length === 0 ? (
+          {filteredMessages.length === 0 ? (
             <div className="empty-state">
               <MessageCircle size={48} className="empty-state-icon" />
-              <h3>No messages yet</h3>
-              <p>Be the first to start the conversation!</p>
+              <h3>{searchQuery ? 'No matching messages' : 'No messages yet'}</h3>
+              <p>{searchQuery ? 'Try a different search term.' : 'Be the first to start the conversation!'}</p>
             </div>
           ) : (
-            messages.map(msg => {
+            filteredMessages.map((msg, index) => {
               const author = users[msg.author_id];
               const msgReactions = reactions[msg.id] || {};
               
+              // Date Divider logic
+              const currentDate = new Date(msg.created_at).toDateString();
+              const prevDate = index > 0 ? new Date(filteredMessages[index - 1].created_at).toDateString() : null;
+              const showDateDivider = currentDate !== prevDate;
+              
+              // Quoted message
+              const quotedMsg = msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null;
+              const quotedAuthor = quotedMsg ? users[quotedMsg.author_id]?.full_name : 'Unknown';
+
               return (
-                <div key={msg.id} className="message" style={{ position: 'relative' }}>
-                  {renderUserAvatar(msg.author_id)}
-                  <div className="msg-content">
-                    <div className="msg-header">
+                <React.Fragment key={msg.id}>
+                  {showDateDivider && (
+                    <div className="date-divider">
+                      <span>{formatDateDivider(msg.created_at)}</span>
+                    </div>
+                  )}
+                  <div className="message" style={{ position: 'relative' }}>
+                    {renderUserAvatar(msg.author_id)}
+                    <div className="msg-content">
+                      <div className="msg-header">
                       <span className="msg-author">{author?.full_name || 'Unknown'}</span>
                       {author?.role === 'Mentor' && <span className="msg-role-tag font-bold">Mentor</span>}
                       {author?.role === 'Alumni' && <span className="msg-role-tag alumni font-bold">Alumni</span>}
@@ -488,8 +574,39 @@ export const ChatApp: React.FC = () => {
                           <CheckCheck size={14} />
                         </span>
                       )}
+                      {msg.edited_at && <span className="edited-label">(edited)</span>}
                     </div>
-                    <p className="msg-text">{msg.text}</p>
+                    
+                    {quotedMsg && (
+                      <div className="quoted-message" onClick={() => {
+                        // In a real app, this would scroll to the message
+                      }}>
+                        <div className="quoted-author">{quotedAuthor}</div>
+                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quotedMsg.text}</div>
+                      </div>
+                    )}
+
+                    {editingMsgId === msg.id ? (
+                      <div className="edit-message-container">
+                        <input 
+                          type="text" 
+                          className="edit-message-input"
+                          value={editMessageText}
+                          onChange={e => setEditMessageText(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSaveEdit(msg.id);
+                            if (e.key === 'Escape') setEditingMsgId(null);
+                          }}
+                          autoFocus
+                        />
+                        <div className="edit-message-actions">
+                          <button className="cancel" onClick={() => setEditingMsgId(null)}>Cancel</button>
+                          <button className="save" onClick={() => handleSaveEdit(msg.id)}>Save</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="msg-text">{highlightText(msg.text, searchQuery)}</p>
+                    )}
                     
                     {/* Render attachment if exists */}
                     {msg.attachment_name && (
@@ -568,17 +685,38 @@ export const ChatApp: React.FC = () => {
                       )}
                     </div>
 
+                    <button 
+                      onClick={() => setReplyToMsgId(msg.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
+                      title="Reply"
+                    >
+                      <Reply size={14} />
+                    </button>
+
                     {msg.author_id === user?.id && (
-                      <button 
-                        onClick={() => handleDeleteMessage(msg.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
-                        title="Delete message"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <>
+                        <button 
+                          onClick={() => {
+                            setEditingMsgId(msg.id);
+                            setEditMessageText(msg.text);
+                          }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
+                          title="Edit message"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteMessage(msg.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-muted)' }}
+                          title="Delete message"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
+                </React.Fragment>
               );
             })
           )}
@@ -605,6 +743,19 @@ export const ChatApp: React.FC = () => {
 
         <div className="chat-input-area">
           <div className="input-container">
+            {/* Reply banner */}
+            {replyToMsgId && (
+              <div className="reply-banner">
+                <div>
+                  <span style={{ fontWeight: 650, color: 'var(--primary-600)' }}>Replying to </span>
+                  {users[messages.find(m => m.id === replyToMsgId)?.author_id || '']?.full_name}
+                </div>
+                <button className="cancel-btn" onClick={() => setReplyToMsgId(null)}>
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            
             {/* Attachment preview */}
             {attachedFile && (
               <div className="attachment-preview" style={{ marginBottom: 8 }}>
