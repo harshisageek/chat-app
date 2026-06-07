@@ -4,7 +4,7 @@ import { useChannels, useMessages, useUsers, useTypingIndicator, useUnreadCounts
 import { supabase } from '../lib/supabase';
 import {
   MessageSquare, Hash, Users, FileText, Paperclip, Smile, Send, BookOpen,
-  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle, Mail,
+  X, CheckCircle2, LogOut, Plus, Trash2, UserPlus, MessageCircle,
   Volume2, VolumeX, CheckCheck, Search, Reply, Edit2
 } from 'lucide-react';
 import type { AttachedFile, Channel, ChannelMember, Message, UserProfile, UserRole } from '../types/chat';
@@ -92,7 +92,6 @@ export const ChatApp: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelDesc, setNewChannelDesc] = useState('');
@@ -846,11 +845,11 @@ export const ChatApp: React.FC = () => {
 
       {/* Modals */}
       {showInviteModal && (
-        <div className="modal-overlay" onClick={() => { setShowInviteModal(false); setGeneratedInviteLink(null); setInviteEmail(''); }}>
+        <div className="modal-overlay" onClick={() => { setShowInviteModal(false); setGeneratedInviteLink(null); }}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Invite via Link</h3>
-              <X className="modal-close" onClick={() => { setShowInviteModal(false); setGeneratedInviteLink(null); setInviteEmail(''); }} />
+              <X className="modal-close" onClick={() => { setShowInviteModal(false); setGeneratedInviteLink(null); }} />
             </div>
             <div className="modal-body">
               {!generatedInviteLink ? (
@@ -888,7 +887,6 @@ export const ChatApp: React.FC = () => {
                   <button 
                     onClick={() => {
                       setGeneratedInviteLink(null);
-                      setInviteEmail('');
                     }}
                     style={{ padding: '8px', border: 'none', background: 'none', color: 'var(--primary-600)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem', alignSelf: 'center' }}
                   >
