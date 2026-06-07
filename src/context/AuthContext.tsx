@@ -204,7 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       console.error('[AuthContext] Error inserting profile in database:', error.message, error);
     }
-  }, [createProfile, ensureBotDms, processInvitations, processUniversalInvite]);
+  }, [ensureBotDms, processInvitations, processUniversalInvite]);
 
   const fetchProfile = useCallback(async (authUser: User) => {
     console.log(`[AuthContext] fetchProfile starting for user ID: ${authUser.id}, Email: ${authUser.email}`);
@@ -246,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('[AuthContext] fetchProfile finished. Setting loading to false.');
       setLoading(false);
     }
-  }, [createProfile, ensureBotDm, processInvitations]);
+  }, [createProfile, ensureBotDms, processInvitations, processUniversalInvite]);
 
   useEffect(() => {
     console.log('[AuthContext] Initializing AuthProvider...');
